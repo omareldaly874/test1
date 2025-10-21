@@ -1,0 +1,90 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "omareldaly/newappnodejs"
+        APP_NAME = "NodeJs_app"
+        QC_SERVER = "10.0.2.166"
+        BASTION_PUBLIC_IP = "13.60.185.220"
+        PROD_SERVER_1_PRIVATE_IP = "10.0.2.17"
+        PROD_SERVER_2_PRIVATE_IP = "10.0.2.75"
+    }
+
+    stages {
+        stage("Checkout Code") {
+            steps {
+                git branch: 'main',
+                    credentialsId: 'github',
+                    url: 'https://github.com/omareldaly874/Node-Js-New-App-.git'
+            }
+        }
+
+        stage('Build & Push') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'docker', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                        sh """
+                          docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} .
+                          echo "$PASS" | docker login -u "$USER" --password-stdin
+                          docker push ${IMAGE_NAME}:${BUILD_NUMBER}
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to QC') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'docker', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                        sshagent (credentials: ['ssl-devops']) {
+                            sh """
+                              ssh -o StrictHostKeyChecking=no ubuntu@${QC_SERVER} \\
+                                "echo '$PASS' | docker login -u '$USER' --password-stdin && \\
+                                 docker pull ${IMAGE_NAME}:${BUILD_NUMBER} && \\
+                                 docker stop ${APP_NAME} || true && \\
+                                 docker rm ${APP_NAME} || true && \\
+                                 docker run -d --name ${APP_NAME} -p 8000:8000 ${IMAGE_NAME}:${BUILD_NUMBER} && \\
+                                 docker image prune -f"
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Approval for Production') {
+            steps {
+                input message: "Done ? ", ok: "Yes, Deploy"
+            }
+        }
+
+        stage('Deploy to Prod') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'docker', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                        sshagent (credentials: ['ssl-devops']) {
+                            sh """
+                              ssh -o StrictHostKeyChecking=no -J ubuntu@${BASTION_PUBLIC_IP} ubuntu@${PROD_SERVER_1_PRIVATE_IP} \\
+                                "echo '$PASS' | docker login -u '$USER' --password-stdin && \\
+                                 docker pull ${IMAGE_NAME}:${BUILD_NUMBER} && \\
+                                 docker stop ${APP_NAME} || true && \\
+                                 docker rm ${APP_NAME} || true && \\
+                                 docker run -d --name ${APP_NAME} -p 8000:8000 ${IMAGE_NAME}:${BUILD_NUMBER} && \\
+                                 docker image prune -f"
+
+                              ssh -o StrictHostKeyChecking=no -J ubuntu@${BASTION_PUBLIC_IP} ubuntu@${PROD_SERVER_2_PRIVATE_IP} \\
+                                "echo '$PASS' | docker login -u '$USER' --password-stdin && \\
+                                 docker pull ${IMAGE_NAME}:${BUILD_NUMBER} && \\
+                                 docker stop ${APP_NAME} || true && \\
+                                 docker rm ${APP_NAME} || true && \\
+                                 docker run -d --name ${APP_NAME} -p 8000:8000 ${IMAGE_NAME}:${BUILD_NUMBER} && \\
+                                 docker image prune -f"
+                            """
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
