@@ -12,12 +12,13 @@ const server = http.createServer(async (req, res) => {
     logToFile(`Path: ${url.path}\n`);
     logToFile(`Query: ${JSON.stringify(url.queryString)}\n`);
 
-    if (req.headers["accept-encoding"]) {
-        res.statusCode = 400;
-        res.statusMessage = 'Bad Request';
-        res.end("we will not serve you!");
-        return;
-    }
+    // ✅ تم إلغاء الجزء اللي كان بيمنع المتصفحات
+    // if (req.headers["accept-encoding"]) {
+    //     res.statusCode = 400;
+    //     res.statusMessage = 'Bad Request';
+    //     res.end("we will not serve you!");
+    //     return;
+    // }
 
     switch (url.path) {
         case "/":
